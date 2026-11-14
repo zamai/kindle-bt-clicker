@@ -1,0 +1,6 @@
+#!/bin/sh
+# btmac <cmd> [args] : run a Bluetooth CLI (e.g. blueutil) with Bluetooth permission.
+D=$(cd "$(dirname "$0")" && pwd)
+OUT=$(mktemp -t btmac)
+open -n -W -o "$OUT" --stderr "$OUT" "$D/mac/BTRun.app" --args "$@"
+cat "$OUT"; rm -f "$OUT"

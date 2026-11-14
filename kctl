@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""kctl - drive a jailbroken Kindle from this Mac over SSH.
+
+  kctl find                 scan LAN for the Kindle's SSH (port 2222), cache IP
+  kctl sh  <cmd...>         run a shell command on the Kindle (root)
+  kctl push LOCAL REMOTE     copy a file to the Kindle
+  kctl shot [out.png]       grab framebuffer -> PNG (default shots/latest.png)
+  kctl tap X Y              tap at screen pixel coords (portrait, as in shot)
+  kctl swipe X1 Y1 X2 Y2    swipe
+  kctl next | prev          page turn (tap right / left edge)
+  kctl check next|prev      do the turn, return 0 only if the screen changed
+  kctl bt next|prev         page turn over Bluetooth (Mac volume -> AVRCP -> Kindle)
+  kctl btcheck next|prev    Bluetooth turn, exit 0 only if the screen changed
+  kctl btconnect            (re)connect the Mac to the Kindle's media remote
+  kctl info                 device/screen/input info
+"""
+import os, subprocess, sys, time, json, re, socket, ipaddress
+
+ROOT = os.path.dirname(os.path.realpath(__file__))
+IPFILE = os.path.join(ROOT, ".kindle_ip")
+KEY = os.path.expanduser("~/.ssh/kindle_ed25519")
+PORT = "2222"
+SSH_OPTS = ["-i", KEY, "-p", PORT, "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+            "-o", "ConnectTimeout=5", "-o", "ControlMaster=auto",
+            "-o", "ControlPath=/tmp/kctl-%r@%h:%p", "-o", "ControlPersist=600"]
+
+def host():
+    h = os.environ.get("KINDLE_HOST")
+    if h: return h
+    if os.path.exists(IPFILE): return open(IPFILE).read().strip()
+    return find()
+
+def find():
+    # local /24 of the default interface
+    out = subprocess.run(["sh", "-c", "ipconfig getifaddr $(route -n get default | awk '/interface:/{print $2}')"],
+                         capture_output=True, text=True).stdout.strip()
+    net = ipaddress.ip_network(out + "/24", strict=False)
+    r = subprocess.run(["nmap", "-n", "-Pn", "-T4", "-p", PORT, "--open", "-oG", "-", str(net)],
+                       capture_output=True, text=True).stdout
+    cands = re.findall(r"Host: (\S+).*2222/open", r)
+    for c in cands:
+        t = subprocess.run(["ssh", *SSH_OPTS, "root@" + c, "cat /etc/prettyversion.txt 2>/dev/null || uname -a"],
+                           capture_output=True, text=True, timeout=20)
+        if t.returncode == 0:
+            open(IPFILE, "w").write(c)
+            print(f"found Kindle at {c}: {t.stdout.strip()}", file=sys.stderr)
+            return c
+    sys.exit(f"no Kindle SSH found on {net} (candidates: {cands})")
+
+def ssh(cmd, capture=True, binary=False, check=True):
+    r = subprocess.run(["ssh", *SSH_OPTS, "root@" + host(), cmd],
+                       capture_output=capture, text=not binary)
+    if check and r.returncode != 0:
+        sys.stderr.write((r.stderr if not binary else r.stderr.decode()) or "")
+        sys.exit(r.returncode)
+    return r.stdout if capture else r.returncode
+
+def push(local, remote):
+    with open(local, "rb") as f:
+        subprocess.run(["ssh", *SSH_OPTS, "root@" + host(), f"cat > '{remote}'"], stdin=f, check=True)
+
+def fbinfo():
+    g = lambda f: ssh(f"cat /sys/class/graphics/fb0/{f}").strip()
+    xres, yres = map(int, g("virtual_size").split(","))
+    bpp = int(g("bits_per_pixel"))
+    stride = int(g("stride"))
+    vis = ssh("fbset 2>/dev/null | sed -n 's/.*geometry \\([0-9]*\\) \\([0-9]*\\).*/\\1 \\2/p'").split()
+    w, h = (int(vis[0]), int(vis[1])) if len(vis) == 2 else (xres, yres)
+    rot = ssh("cat /sys/class/graphics/fb0/rotate 2>/dev/null || echo 0").strip()
+    return dict(w=w, h=h, bpp=bpp, stride=stride, vyres=yres, rotate=int(rot or 0))
+
+def shot(out=None):
+    out = out or os.path.join(ROOT, "shots", "latest.png")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    fi = fbinfo()
+    bytespp = fi["bpp"] // 8
+    raw = ssh(f"head -c {fi['stride'] * fi['h']} /dev/fb0", binary=True)
+    pix = {1: "gray", 2: "rgb565le", 4: "bgra"}[bytespp]
+    vf = f"crop={fi['w']}:{fi['h']}:0:0"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", pix,
+                    "-s", f"{fi['stride'] // bytespp}x{fi['h']}", "-i", "-", "-vf", vf, "-frames:v", "1", out],
+                   input=raw, check=True)
+    ts = os.path.join(ROOT, "shots", time.strftime("%Y%m%d-%H%M%S") + ".png")
+    subprocess.run(["cp", out, ts])
+    print(out)
+
+REMOTE_INJ = "/mnt/us/btclicker/inject.lua"
+def inject(args):
+    if ssh(f"test -f {REMOTE_INJ} && md5sum {REMOTE_INJ}", check=False, capture=True).split()[:1] != \
+       [subprocess.run(["md5", "-q", os.path.join(ROOT, "kindle", "inject.lua")], capture_output=True, text=True).stdout.strip()]:
+        ssh("mkdir -p /mnt/us/btclicker")
+        push(os.path.join(ROOT, "kindle", "inject.lua"), REMOTE_INJ)
+    print(ssh(f"cd /mnt/us/koreader && ./luajit {REMOTE_INJ} {args}"), end="")
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"): print(__doc__); return
+    c, rest = a[0], a[1:]
+    if c == "find": find()
+    elif c == "sh": print(ssh(" ".join(rest)), end="")
+    elif c == "push": push(rest[0], rest[1])
+    elif c == "shot": shot(rest[0] if rest else None)
+    elif c == "tap": inject("tap " + " ".join(rest))
+    elif c == "swipe": inject("swipe " + " ".join(rest))
+    elif c in ("next", "prev"): inject(c)
+    elif c == "check":
+        a, b = os.path.join(ROOT, "shots", "check_before.png"), os.path.join(ROOT, "shots", "check_after.png")
+        shot(a); inject(rest[0]); time.sleep(float(os.environ.get("KINDLE_SETTLE", "1.5"))); shot(b)
+        same = open(a, "rb").read() == open(b, "rb").read()
+        print("UNCHANGED" if same else "CHANGED"); sys.exit(1 if same else 0)
+    elif c == "bt":
+        subprocess.run([os.path.join(ROOT, "mac", "kturn"), *rest], check=True)
+    elif c == "btconnect":
+        subprocess.run([os.path.join(ROOT, "btmac"), "blueutil", "--connect", os.environ.get("KINDLE_BT_ADDR", "00-00-46-67-61-01")])
+    elif c == "btcheck":
+        a, b = os.path.join(ROOT, "shots", "check_before.png"), os.path.join(ROOT, "shots", "check_after.png")
+        shot(a); subprocess.run([os.path.join(ROOT, "mac", "kturn"), rest[0]], check=True)
+        time.sleep(float(os.environ.get("KINDLE_SETTLE", "2.5"))); shot(b)
+        same = open(a, "rb").read() == open(b, "rb").read()
+        print("UNCHANGED" if same else "CHANGED"); sys.exit(1 if same else 0)
+    elif c == "info":
+        print(json.dumps(fbinfo()))
+        print(ssh("cat /etc/prettyversion.txt; cat /proc/bus/input/devices; ls -l /dev/input"))
+    else: sys.exit(__doc__)
+
+if __name__ == "__main__": main()

@@ -1,0 +1,21 @@
+# kindle-bt-clicker boot job: key-only SSH (KOReader's dropbear) on :2222, and makes sure
+# kindle-hid-passthrough is running. Waits for /mnt/us to really be available, because
+# booting with USB plugged in exports the userstore to the host when framework_ready fires.
+start on framework_ready
+stop on stopping filesystems
+
+respawn
+respawn limit 10 300
+console none
+
+script
+    while [ ! -x /mnt/us/koreader/dropbear ]; do sleep 5; done
+    if [ -f /etc/upstart/hid-passthrough.conf ]; then
+        start --no-wait hid-passthrough >/dev/null 2>&1 || true
+    fi
+    iptables -C INPUT -p tcp --dport 2222 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 2222 -j ACCEPT
+    iptables -C OUTPUT -p tcp --sport 2222 -j ACCEPT 2>/dev/null || iptables -I OUTPUT -p tcp --sport 2222 -j ACCEPT
+    cd /mnt/us/koreader
+    # -F foreground (upstart supervises), -s no passwords, keys from settings/SSH/authorized_keys
+    exec ./dropbear -F -E -R -s -p 2222 -P /tmp/dropbear_btc.pid >>/var/log/btclicker-ssh.log 2>&1
+end script

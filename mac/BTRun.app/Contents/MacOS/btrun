@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs its arguments with this app as the TCC-responsible process (Bluetooth access).
+export PATH=/opt/homebrew/bin:/usr/bin:/bin
+exec "$@"
