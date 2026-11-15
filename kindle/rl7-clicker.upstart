@@ -1,0 +1,12 @@
+# /etc/upstart/rl7-clicker.conf - RL7 remote: click = next page, hold >=500 ms = previous page
+start on framework_ready
+stop on stopping filesystems
+respawn
+respawn limit 10 300
+console none
+script
+    while [ ! -x /mnt/us/koreader/luajit ] || [ ! -f /mnt/us/btclicker/longpress.lua ]; do sleep 5; done
+    cd /mnt/us/koreader
+    S=/mnt/us/kindle-button-mapper/scripts/kindle.sh
+    exec ./luajit /mnt/us/btclicker/longpress.lua "Bluetooth remote RL7" 115 500 "$S next_page" "$S prev_page" >>/var/log/rl7-clicker.log 2>&1
+end script

@@ -78,6 +78,29 @@ media-remote path is the closest real-radio stand-in and runs through the same d
 - Opening **BT Manager** on the Kindle auto-scans, which suspends the daemon and drops the Mac link.
 - `pgrep -f`/`pkill -f` over ssh match the ssh command line itself; use `[d]ist/main[.]bin` style patterns.
 
+## Step 3: Real clicker (works)
+
+"Bluetooth remote RL7" (BLE, 2A:07:98:03:86:0D), paired over SSH through the daemon API
+(`/scan`, `/scan-status`, `/pair?addr=...&protocol=ble`, `/pair-status` on 127.0.0.1:8321),
+so the BT Manager UI isn't needed. It shows up as /dev/input/eventN, named "Bluetooth remote RL7".
+
+**Controls:** click = next page; hold 500 ms or longer = previous page. The previous-page
+turn fires while the button is still held.
+
+- Both buttons send the same key: KEY_VOLUMEUP (115, consumer usage 0xC00E9). The HID
+  descriptor is only 27 bytes, so the Kindle can't tell the buttons apart.
+- Its uhid input device has no EV_REP (EV=13), so no autorepeat. kindle-button-mapper's
+  `[device.X.longpress]` waits for repeat events and never fires; a held press comes out as a click.
+- The fix is my own handler, `kindle/longpress.lua`. It grabs the device, times the press with
+  poll(), and rescans for the device after a disconnect. It runs from the boot job
+  `kindle/rl7-clicker.upstart` (installed as /etc/upstart/rl7-clicker.conf) and logs to
+  /var/log/rl7-clicker.log. The RL7 block that pairing auto-adds is removed from the mapper's
+  config.ini so the mapper doesn't grab the device.
+- To see what a device sends: `kindle/evlog.lua DEV SECONDS` (KOReader's luajit; stop
+  whatever grabs the device first).
+- Undo: `mntroot rw; rm /etc/upstart/rl7-clicker.conf; mntroot ro; stop rl7-clicker`.
+- Verified 2026-11-15 in the stock reader: a click turned forward and a hold turned back. Also verified after a reboot: the remote reconnected with no click (25 s after boot), and again after the Kindle had been asleep.
+
 ## Next steps (from research)
 - Install `usbnetlite` (KPM) as a USB-SSH fallback before touching the BT stack.
 - Buy/pair a real clicker (AB Shutter 3 / 8BitDo Micro): `kindle-hid-passthrough --pair`, map its keycodes in the mapper.
