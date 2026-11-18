@@ -80,7 +80,7 @@ media-remote path is the closest real-radio stand-in and runs through the same d
 
 ## Step 3: Real clicker (works)
 
-"Bluetooth remote RL7" (BLE, 2A:07:98:03:86:0D), paired over SSH through the daemon API
+"Bluetooth remote RL7" (BLE, AA:BB:CC:DD:EE:FF), paired over SSH through the daemon API
 (`/scan`, `/scan-status`, `/pair?addr=...&protocol=ble`, `/pair-status` on 127.0.0.1:8321),
 so the BT Manager UI isn't needed. It shows up as /dev/input/eventN, named "Bluetooth remote RL7".
 
