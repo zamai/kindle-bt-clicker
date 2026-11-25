@@ -96,6 +96,10 @@ turn fires while the button is still held.
   `kindle/rl7-clicker.upstart` (installed as /etc/upstart/rl7-clicker.conf) and logs to
   /var/log/rl7-clicker.log. The RL7 block that pairing auto-adds is removed from the mapper's
   config.ini so the mapper doesn't grab the device.
+- **Power:** a press while the screen saver is up only wakes the Kindle (`lipc-set-prop com.lab126.powerd powerButton 1`)
+  and turns no page; presses in the next 3 s are ignored while it wakes. Every page turn resets the
+  screen-saver timer (`lipc-set-prop -i com.lab126.powerd touchScreenSaverTimeout 1`), so reading
+  with the remote keeps the Kindle awake like touching the screen does.
 - To see what a device sends: `kindle/evlog.lua DEV SECONDS` (KOReader's luajit; stop
   whatever grabs the device first).
 - Undo: `mntroot rw; rm /etc/upstart/rl7-clicker.conf; mntroot ro; stop rl7-clicker`.
