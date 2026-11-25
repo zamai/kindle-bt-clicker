@@ -35,7 +35,7 @@ local WAKE_GRACE_MS = 3000   -- after a wake, ignore presses until powerd says "
 
 -- powerd state: "active", "screenSaver", "readyToSuspend", ... nil if lipc fails (then assume awake).
 local function power_state()
-  local h = io.popen("lipc-get-prop " .. POWERD .. " state 2>/dev/null"); if not h then return nil end
+  local h = io.popen("lipc-get-prop -s " .. POWERD .. " state 2>/dev/null"); if not h then return nil end
   local s = h:read("*l"); h:close(); return s
 end
 local function asleep() local s = power_state(); return s ~= nil and s ~= "" and s ~= "active", s end

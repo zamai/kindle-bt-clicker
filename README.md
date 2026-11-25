@@ -100,6 +100,7 @@ turn fires while the button is still held.
   and turns no page; presses in the next 3 s are ignored while it wakes. Every page turn resets the
   screen-saver timer (`lipc-set-prop -i com.lab126.powerd touchScreenSaverTimeout 1`), so reading
   with the remote keeps the Kindle awake like touching the screen does.
+- Verified 2026-11-25: a click on the screen saver woke the Kindle with no page turn, the next click turned a page, and each turn reset the sleep timer to 1800 s.
 - To see what a device sends: `kindle/evlog.lua DEV SECONDS` (KOReader's luajit; stop
   whatever grabs the device first).
 - Undo: `mntroot rw; rm /etc/upstart/rl7-clicker.conf; mntroot ro; stop rl7-clicker`.
